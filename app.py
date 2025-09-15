@@ -1,5 +1,5 @@
 import streamlit as st
-from auth_utils import register_user, login_user # Import functions from our other file
+from auth_utils import register_user, login_user, get_recommendations 
 
 # --- Page Configuration ---
 st.set_page_config(page_title="RecommaI", layout="centered")
@@ -67,17 +67,16 @@ def show_home_page():
     """Displays the main recommendation engine page."""
     
     # --- Top Navigation Bar ---
-    # Create columns for navigation, mimicking your template
     col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
-        st.image("logo.png", width=150) # Smaller logo on main page
+        st.image("logo.png", width=150) 
     with col2:
-        st.write(f"Welcome, {st.session_state['user_email']}") # Show logged-in user
+        st.write(f"Welcome, {st.session_state['user_email']}")
     with col3:
         if st.button("Log Out"):
             st.session_state['logged_in'] = False
             st.session_state['user_email'] = ""
-            st.rerun() # Rerun to go back to login page
+            st.rerun()
 
     st.divider()
 
@@ -85,34 +84,30 @@ def show_home_page():
     st.title("Find Your Next Obsession")
     st.subheader("Enter an anime or a game title to get started!")
 
-    # The main search bar
     search_query = st.text_input(
         "Search", 
         placeholder="e.g., One Piece, Elden Ring, or Studio Ghibli", 
         label_visibility="collapsed"
     )
 
+    # --- THIS IS THE UPDATED LOGIC ---
     if search_query:
-        # --- THIS IS WHERE YOU CALL YOUR SIAMESE NETWORK ---
-        # 1. Add your ML model loading logic here
-        # 2. Call your model: recommendations = your_siamese_model.predict(search_query, k=5)
-        # 3. Display the results:
-        
-        st.write(f"Top 5 recommendations based on '{search_query}':")
-        
-        # Example of how you would display the results (replace with your actual data)
-        # for rec in recommendations:
-        #    st.success(f"**{rec['title']}** - Score: {rec['similarity_score']:.2f}")
-        #    st.write(rec['description'])
-        
-        st.write(f"(Dummy output: Your ML model will process '{search_query}' here)")
+        # Call our new function to query the database
+        recommendations, rec_domain = get_recommendations(search_query)
 
-
-# ===============================================
-# ===        MAIN ROUTER LOGIC                ===
-# ===============================================
-
-if not st.session_state['logged_in']:
-    show_login_page()
-else:
-    show_home_page()
+        if recommendations:
+            st.subheader(f"Top 5 {rec_domain.capitalize()} recommendations for '{search_query}':")
+            
+            # Display each recommendation
+            for rec in recommendations:
+                # Format similarity as a percentage
+                sim_percent = f"{rec['similarity'] * 100:.0f}% Similarity"
+                
+                # Use st.container to group each result
+                with st.container(border=True):
+                    st.markdown(f"**{rec['title']}**")
+                    st.markdown(f"*{sim_percent}*")
+        
+        else:
+            # Show this message if the search query returned no results
+            st.warning("No recommendations found. Please check the spelling or try another title.")

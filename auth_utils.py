@@ -94,3 +94,61 @@ def login_user(email, password):
             conn.close()
             
     return False, "Database connection failed."
+
+# ... (add this function at the end of the file, after your login/register functions)
+
+def get_recommendations(search_title):
+    """
+    Fetches pre-calculated recommendations from the siamese_recommendations table
+    based on the chosen_title.
+    """
+    conn = get_db_connection()
+    if not conn:
+        st.error("Database connection failed.")
+        return [], None
+
+    recommendations_list = []
+    recommended_domain = "items" # Default text
+
+    try:
+        with conn.cursor() as cur:
+            # We use ILIKE for a case-insensitive match and '%' as a wildcard.
+            # This ensures that searching "one piece" will find "One Piece (1999)".
+            query_term = f"%{search_title}%"
+            
+            cur.execute(
+                "SELECT * FROM siamese_recommendations WHERE chosen_title ILIKE %s LIMIT 1",
+                (query_term,)
+            )
+            
+            result_row = cur.fetchone() # Get the first matching row
+
+            if result_row:
+                # Per your schema:
+                # result_row[3] is rec_domain (e.g., "game" or "anime")
+                recommended_domain = result_row[3]
+
+                # Loop 5 times to get all 5 recommendations
+                # Your recommendation data starts at index 4 (rec_id_1)
+                # Each recommendation consists of 3 columns (id, title, percent)
+                for i in range(5):
+                    rec_title_index = 5 + (i * 3)
+                    rec_percent_index = 6 + (i * 3)
+
+                    title = result_row[rec_title_index]
+                    percent = result_row[rec_percent_index]
+
+                    # Add to list only if data exists
+                    if title and percent is not None:
+                        recommendations_list.append({
+                            "title": title,
+                            "similarity": percent
+                        })
+                
+            return recommendations_list, recommended_domain
+
+    except Exception as e:
+        st.error(f"Error querying recommendations: {e}")
+        return [], None
+    finally:
+        conn.close()
