@@ -111,3 +111,13 @@ def show_home_page():
         else:
             # Show this message if the search query returned no results
             st.warning("No recommendations found. Please check the spelling or try another title.")
+
+
+# ===============================================
+# ===        MAIN ROUTER LOGIC                ===
+# ===============================================
+
+if not st.session_state['logged_in']:
+    show_login_page()
+else:
+    show_home_page()
