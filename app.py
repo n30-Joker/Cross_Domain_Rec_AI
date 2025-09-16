@@ -141,7 +141,7 @@ def show_results_view():
     col1, col2 = st.columns([1, 2]) # Ratio as per your template
     
     with col1:
-        st.image(input_item['image_url'], use_column_width=True)
+        st.image(input_item['image_url'], use_container_width=True)
     
     with col2:
         # Create the grey info box from the template
@@ -168,7 +168,7 @@ def show_results_view():
         with cols[i]:
             # This container creates the "card" for each recommendation
             with st.container(border=True):
-                st.image(rec['image_url'], use_column_width=True)
+                st.image(rec['image_url'], use_container_width=True)
                 st.markdown(f"**{rec['title']}**")
                 
                 # Synopsis preview

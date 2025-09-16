@@ -3,6 +3,8 @@ import os
 from dotenv import load_dotenv
 import bcrypt
 import streamlit as st
+from bs4 import BeautifulSoup
+import html
 
 # Load .env variables
 load_dotenv()
@@ -28,6 +30,38 @@ def get_db_connection():
     except Exception as e:
         st.error(f"Error connecting to database: {e}")
         return None
+    
+def clean_synopsis(html_text):
+    """
+    Cleans HTML text from a synopsis string.
+    Removes tags (like images, divs) and unescapes HTML entities.
+    """
+    if not html_text:
+        return "No synopsis available."
+    
+    try:
+        # 1. Parse the HTML
+        soup = BeautifulSoup(html_text, "html.parser")
+        
+        # 2. Remove unwanted tags that don't contain text (like images, scripts, styles)
+        for tag in soup(["img", "div", "script", "style"]):
+            tag.decompose() # Remove the tag and all its contents
+        
+        # 3. Get the text, separating paragraphs with newlines
+        text = soup.get_text(separator="\n")
+        
+        # 4. Unescape HTML entities (e.g., &amp; -> &)
+        text = html.unescape(text)
+        
+        # 5. Clean up excessive whitespace and multiple newlines
+        lines = [line.strip() for line in text.splitlines()]
+        cleaned_lines = [line for line in lines if line] # Filter out empty lines
+        
+        return "\n".join(cleaned_lines)
+        
+    except Exception as e:
+        print(f"Error cleaning synopsis: {e}")
+        return html_text # Return original text if cleaning fails
 
 # --- Password Hashing & Verification (This is the "strong encryption") ---
 
@@ -111,7 +145,8 @@ def get_media_details(media_id, media_domain, cursor):
             cursor.execute("SELECT synopsis FROM animes WHERE id = %s", (media_id,))
             synopsis_result = cursor.fetchone()
             if synopsis_result:
-                synopsis = synopsis_result[0]
+                raw_synopsis = synopsis_result[0]
+                synopsis = clean_synopsis(raw_synopsis) # Clean the text
 
             # Get anime picture
             cursor.execute("SELECT large_url FROM anime_main_pictures WHERE anime_id = %s", (media_id,))
@@ -152,7 +187,8 @@ def get_media_details(media_id, media_domain, cursor):
             game_details = cursor.fetchone()
             
             if game_details:
-                synopsis = game_details[0]
+                raw_synopsis = game_details[0]
+                synopsis = clean_synopsis(raw_synopsis) # Clean the text
                 image_url = game_details[1]
                 
             return synopsis, image_url
