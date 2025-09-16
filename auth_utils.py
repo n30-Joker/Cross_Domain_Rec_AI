@@ -95,60 +95,137 @@ def login_user(email, password):
             
     return False, "Database connection failed."
 
-# ... (add this function at the end of the file, after your login/register functions)
+# (Keep all your existing auth functions: get_db_connection, hash_password, etc.)
+# --- Add the two new functions below ---
 
-def get_recommendations(search_title):
+def get_media_details(media_id, media_domain, cursor):
     """
-    Fetches pre-calculated recommendations from the siamese_recommendations table
-    based on the chosen_title.
+    Fetches the synopsis and image URL for a given item from its domain table.
+    This function re-uses the provided database cursor for efficiency.
+    """
+    synopsis, image_url = "No synopsis available.", "default_image_url.png" # Fallbacks
+
+    try:
+        if media_domain == 'anime':
+            # Get anime synopsis
+            cursor.execute("SELECT synopsis FROM animes WHERE id = %s", (media_id,))
+            synopsis_result = cursor.fetchone()
+            if synopsis_result:
+                synopsis = synopsis_result[0]
+
+            # Get anime picture
+            cursor.execute("SELECT large_url FROM anime_main_pictures WHERE anime_id = %s", (media_id,))
+            image_result = cursor.fetchone()
+            if image_result:
+                image_url = image_result[0]
+            
+            return synopsis, image_url
+
+        elif media_domain == 'game':
+            # This large UNION query searches all 10 game tables at once.
+            union_query = """
+                SELECT detailed_description, header_image FROM (
+                    SELECT id, detailed_description, header_image FROM steam_games_chunk_1 WHERE id = %s
+                    UNION ALL
+                    SELECT id, detailed_description, header_image FROM steam_games_chunk_2 WHERE id = %s
+                    UNION ALL
+                    SELECT id, detailed_description, header_image FROM steam_games_chunk_3 WHERE id = %s
+                    UNION ALL
+                    SELECT id, detailed_description, header_image FROM steam_games_chunk_4 WHERE id = %s
+                    UNION ALL
+                    SELECT id, detailed_description, header_image FROM steam_games_chunk_5 WHERE id = %s
+                    UNION ALL
+                    SELECT id, detailed_description, header_image FROM steam_games_chunk_6 WHERE id = %s
+                    UNION ALL
+                    SELECT id, detailed_description, header_image FROM steam_games_chunk_7 WHERE id = %s
+                    UNION ALL
+                    SELECT id, detailed_description, header_image FROM steam_games_chunk_8 WHERE id = %s
+                    UNION ALL
+                    SELECT id, detailed_description, header_image FROM steam_games_chunk_9 WHERE id = %s
+                    UNION ALL
+                    SELECT id, detailed_description, header_image FROM steam_games_chunk_10 WHERE id = %s
+                ) AS all_games
+            """
+            # We must provide the media_id 10 times, one for each part of the UNION
+            params = (media_id,) * 10
+            cursor.execute(union_query, params)
+            game_details = cursor.fetchone()
+            
+            if game_details:
+                synopsis = game_details[0]
+                image_url = game_details[1]
+                
+            return synopsis, image_url
+
+    except Exception as e:
+        st.error(f"Error in get_media_details: {e}")
+        return synopsis, image_url # Return fallbacks
+
+    return synopsis, image_url
+
+
+def get_results_data(search_title, search_domain):
+    """
+    Fetches all data needed for the results page: input item details
+    and all 5 recommended item details.
     """
     conn = get_db_connection()
     if not conn:
         st.error("Database connection failed.")
-        return [], None
-
-    recommendations_list = []
-    recommended_domain = "items" # Default text
+        return None
 
     try:
         with conn.cursor() as cur:
-            # We use ILIKE for a case-insensitive match and '%' as a wildcard.
-            # This ensures that searching "one piece" will find "One Piece (1999)".
-            query_term = f"%{search_title}%"
-            
+            # 1. Get the recommendations row
             cur.execute(
-                "SELECT * FROM siamese_recommendations WHERE chosen_title ILIKE %s LIMIT 1",
-                (query_term,)
+                "SELECT * FROM siamese_recommendations WHERE chosen_title ILIKE %s AND chosen_domain = %s LIMIT 1",
+                (f"%{search_title}%", search_domain)
             )
-            
-            result_row = cur.fetchone() # Get the first matching row
+            siamese_row = cur.fetchone()
 
-            if result_row:
-                # Per your schema:
-                # result_row[3] is rec_domain (e.g., "game" or "anime")
-                recommended_domain = result_row[3]
+            if not siamese_row:
+                st.warning("No recommendations found for that title.")
+                return None
 
-                # Loop 5 times to get all 5 recommendations
-                # Your recommendation data starts at index 4 (rec_id_1)
-                # Each recommendation consists of 3 columns (id, title, percent)
-                for i in range(5):
-                    rec_title_index = 5 + (i * 3)
-                    rec_percent_index = 6 + (i * 3)
+            # 2. Unpack Siamese data
+            chosen_id = siamese_row[1]
+            chosen_title = siamese_row[2] # Get the correctly cased title
+            rec_domain = siamese_row[3]
 
-                    title = result_row[rec_title_index]
-                    percent = result_row[rec_percent_index]
+            # 3. Get Input Item Details
+            input_synopsis, input_image = get_media_details(chosen_id, search_domain, cur)
+            input_data = {
+                "title": chosen_title,
+                "synopsis": input_synopsis if input_synopsis else "No synopsis found.",
+                "image_url": input_image
+            }
 
-                    # Add to list only if data exists
-                    if title and percent is not None:
-                        recommendations_list.append({
-                            "title": title,
-                            "similarity": percent
-                        })
+            # 4. Get Recommended Items Details
+            rec_list = []
+            for i in range(5):
+                rec_id_index = 4 + (i * 3)
+                rec_title_index = 5 + (i * 3)
                 
-            return recommendations_list, recommended_domain
+                rec_id = siamese_row[rec_id_index]
+                rec_title = siamese_row[rec_title_index]
+                
+                if rec_id and rec_title:
+                    rec_synopsis, rec_image = get_media_details(rec_id, rec_domain, cur)
+                    rec_list.append({
+                        "title": rec_title,
+                        "synopsis": rec_synopsis if rec_synopsis else "No synopsis found.",
+                        "image_url": rec_image
+                    })
+            
+            return {
+                "input_item": input_data,
+                "recommendations": rec_list,
+                "rec_domain": rec_domain
+            }
 
     except Exception as e:
-        st.error(f"Error querying recommendations: {e}")
-        return [], None
+        st.error(f"Error in get_results_data: {e}")
+        return None
     finally:
         conn.close()
+
